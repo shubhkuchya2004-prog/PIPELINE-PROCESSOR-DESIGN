@@ -1,0 +1,73 @@
+module pipelined_cpu(input clk, reset);
+
+    // Memory and Registers
+    reg [15:0] instr_mem [0:255];
+    reg [7:0]  data_mem [0:255];
+    reg [15:0] reg_file [0:15];
+
+    reg [7:0] PC;
+
+    // -------- Pipeline Registers --------
+
+    // IF/ID
+    reg [15:0] IFID_instr;
+    reg [7:0]  IFID_PC;
+
+    // ID/EX
+    reg [3:0] IDEX_opcode;
+    reg [3:0] IDEX_rd, IDEX_rs;
+    reg [15:0] IDEX_rs_val, IDEX_rt_val;
+    reg [15:0] IDEX_imm;
+
+    // EX/WB
+    reg [3:0] EXWB_rd;
+    reg [15:0] EXWB_result;
+
+    // ---------------- IF Stage ----------------
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            PC <= 0;
+        else begin
+            IFID_instr <= instr_mem[PC];
+            IFID_PC    <= PC;
+            PC <= PC + 1;
+        end
+    end
+
+    // ---------------- ID Stage ----------------
+    wire [3:0] opcode = IFID_instr[15:12];
+    wire [3:0] rd     = IFID_instr[11:8];
+    wire [3:0] rs     = IFID_instr[7:4];
+    wire [3:0] rtimm  = IFID_instr[3:0];
+
+    always @(posedge clk) begin
+        IDEX_opcode <= opcode;
+        IDEX_rd     <= rd;
+        IDEX_rs     <= rs;
+        IDEX_rs_val <= reg_file[rs];
+        IDEX_rt_val <= reg_file[rtimm];
+        IDEX_imm    <= {{12{rtimm[3]}}, rtimm}; // sign extend
+    end
+
+    // ---------------- EX Stage ----------------
+    reg [15:0] alu_out;
+    always @(*) begin
+        case (IDEX_opcode)
+            4'b0001: alu_out = IDEX_rs_val + IDEX_rt_val;          // ADD
+            4'b0010: alu_out = IDEX_rs_val - IDEX_rt_val;          // SUB
+            4'b0011: alu_out = data_mem[IDEX_rs_val + IDEX_imm];   // LOAD
+            default: alu_out = 0;
+        endcase
+    end
+
+    always @(posedge clk) begin
+        EXWB_rd     <= IDEX_rd;
+        EXWB_result <= alu_out;
+    end
+
+    // ---------------- WB Stage ----------------
+    always @(posedge clk) begin
+        reg_file[EXWB_rd] <= EXWB_result;
+    end
+
+endmodule
